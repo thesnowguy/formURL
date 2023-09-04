@@ -1,0 +1,93 @@
+var SWA_CommentsUtil = Class.create();
+SWA_CommentsUtil.prototype = {
+    initialize: function() {},
+
+    /**
+     *  forms the href link in the  comments if they have a valid url.
+     *  @param {string} messsage - body of the comment
+     *  @param {string} sysid - sys_id of the record.
+     *  @param {string} field - fieldname(work_notes or comments).
+     *  @returns NA
+     */
+    postComment: function(message, sysid, field) {
+        var hasURL = this._detectURL(message);
+        if (hasURL.length) {
+            var newBody = this._replaceURL(message);
+            this._editLastComment(sysid, field, newBody);
+        }
+    },
+    /**
+     *  Checks if the string contain URL(s).
+     *  @param {string} message - body of the comment.
+     *  @returns {object} Array of URL(s)
+     */
+    _detectURL: function(message) {
+        var urlRegex = /(((https?:\/\/)|(www\.))[^\s]+)/g;
+        return message.match(urlRegex);
+    },
+    /**
+     *  Checks if the string contain URL(s).
+     *  @param {string} message -  body of the comment.
+     *  @returns {string} href link of the url
+     */
+    _replaceURL: function(message) {
+        var urlRegex = /(((https?:\/\/)|(www\.))[^\s]+)/g;
+        return message.replace(urlRegex, function(url) {
+            var hyperlink = url;
+            if (!hyperlink.match('^https?:\/\/')) {
+                hyperlink = 'http://' + hyperlink;
+            }
+            return '[code]<a href="' + hyperlink + '" target="_blank" rel="noopener noreferrer">' + url + '</a>[/code]';
+        });
+    },
+    /**
+     *  updates the comment budy with the new data(url link replaced)
+     *  @param {string} recordid - sys_id of the record
+     *  @param {string} field - name of the field
+     *  @param {string} newvalue - new value to be put in the field.
+     *  @returns NA
+     */
+    _editLastComment: function(recordid, field, newvalue) {
+        var recordID = recordid;
+
+        // update the comment with the replaced URL body
+        var journalGR = new GlideRecord('sys_journal_field');
+        journalGR.addQuery('element_id', recordID);
+        journalGR.addQuery('element', field);
+        journalGR.orderByDesc('sys_created_on');
+        journalGR.setLimit(1);
+        journalGR.query();
+        if (!journalGR.next()) return null;
+
+        // disable edit of sys_fields, this would generate a new comment
+        journalGR.autoSysFields(false);
+
+        var oldValue = journalGR.value;
+        journalGR.value = newvalue;
+        journalGR.update();
+
+        // modify the associated audit record
+        var auditGR = new GlideRecord('sys_audit');
+        auditGR.addQuery('documentkey', recordID);
+        auditGR.addQuery('fieldname', field);
+        auditGR.orderByDesc('sys_created_on');
+        auditGR.setLimit(1);
+        auditGR.query();
+        // check if audit exists
+        if (!auditGR.next()) return oldvalue;
+
+        auditGR['new'] = newvalue;
+        auditGR.newvalue = newvalue;
+        auditGR.autoSysFields(false);
+        auditGR.update();
+        // and finally update the history
+        var historyGR = new GlideRecord('sys_history_line');
+        historyGR.get('audit_sysid', audit.sys_id.toString());
+        if (!historyGR.isValidRecord()) return oldvalue;
+        //Refresh the history set
+        var hist_set = historyGR.set.id.getRefRecord();
+        GlideHistorySet(hist_set).refresh();
+    },
+
+    type: 'SWA_CommentsUtil'
+};
